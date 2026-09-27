@@ -1,8 +1,8 @@
 # HelioDual
 
-A dual-axis solar tracker that derives a **two-axis pointing error from a single photoresistor**.
+A dual-axis solar tracker prototype that derives a **two-axis pointing error from a single photoresistor**.
 
-Conventional trackers read the light gradient in *space* — four sensors around a shade fin, driving the difference between them to zero. HelioDual has one sensor, so it reads the gradient in *time*: the panel dithers a few degrees on a known path, and the phase of the resulting flicker says which way the source is.
+Conventional trackers read the light gradient in *space* using four sensors around a shade fin, driving the difference between them to zero. HelioDual has only one sensor, so it reads the gradient in *time*: the panel deviates a few degrees on a path, and the phase of the resulting flicker says which way the light source is.
 
 Built for HackGT 13 (hardware track) on an Arduino Uno with two SG90 servos and a KY-018 light module.
 
@@ -12,7 +12,7 @@ Built for HackGT 13 (hardware track) on an Arduino Uno with two SG90 servos and 
 
 ### Direction from a single brightness reading
 
-One photoresistor tells you how bright it is, not where the light is. Moving while measuring is what converts brightness into direction.
+The single photoresistor tells us brightness, but not where the light source is. And so, we move while we measure brightness at the same time.
 
 The platform sways along a sine path. Multiply the light signal by that same sine and sum over a full cycle:
 
@@ -20,28 +20,25 @@ The platform sways along a sine path. Multiply the light signal by that same sin
 - **Off to the other side** — the signal is inverted. The sum is negative.
 - **On the peak** — light rises on *both* halves of the sway. The signal comes back at twice the dither frequency and the sum cancels to zero.
 
-Zero correlation means centred, which is the one thing a single brightness reading can never tell you on its own. This is synchronous detection — the operating principle of a lock-in amplifier.
-
-### Two axes from one sensor
+### Two axes from one sensor (roll, pitch)
 
 Roll dithers at 2 cycles per measurement window, pitch at 3. Sines with different whole-number cycle counts over a common window are orthogonal, so each axis' reference integrates the other's motion to exactly zero. One sensor, two independent channels, no time-multiplexing.
 
-The counts are also **coprime on purpose**. Gear backlash distorts each sine and generates harmonics — roll's land at 4, 6, 8; pitch's at 6, 9. Neither ever falls on the other's fundamental. A pair like 2 and 4 would dump roll's second harmonic straight into pitch's channel every time the gears rattled.
+The counts are also **coprime on purpose**. Gear backlash distorts each sine and generates harmonics — roll's land at 4, 6, 8; pitch's at 6, 9. Neither ever falls on the other's fundamental. A pair like 2 and 4 would dump roll's second harmonic straight into pitch's channel.
 
 A useful side effect of narrowband detection: correlating against a 0.67 Hz reference rejects almost everything else, so 120 Hz ripple from mains-powered room lighting integrates away.
 
 ### Quadrature detection
 
-The photoresistor's response time and mechanical lag shift the signal out of phase with the command. Correlating against sine alone recovers only `cos(φ)` of the true amplitude, and the faster axis loses more — which would make pitch quietly less sensitive than roll for no visible reason.
+The photoresistor's response time and mechanical lag shift the signal out of phase with the command. Correlating against sine alone recovers only `cos(φ)` of the true amplitude, and the faster axis loses more, so pitch  would be less sensitive than roll for (seemingly) no reason.
 
 Correlating against cosine as well captures what leaked into quadrature. The magnitude of I and Q together is independent of phase; the sign of I still gives direction while lag stays under a quarter cycle.
 
 ### Acquisition
 
-Outside the collimator's acceptance cone the signal is flat and there is no gradient to correlate, so tracking cannot begin from an arbitrary orientation. A serpentine raster sweeps the full travel and takes the brightest point as a starting estimate.
+Outside the collimator's (black cylinder on top of the photoresistor itself to isolate light sources) acceptance cone the signal is flat and there is no gradient to correlate, so tracking cannot begin from an arbitrary orientation. A serpentine raster sweeps the full travel and takes the brightest point as a starting estimate.
 
-That coarse pass is fast and therefore lag-biased: the sensor reports a rise late, so the apparent peak sits behind the true one. Each axis is then refined by **sweeping in both directions and averaging** — opposing passes carry equal and opposite bias, so their mean is unbiased for any sensor response time. A single pass can only reduce that bias by sweeping slower; it can never remove it.
-
+That coarse pass is fast and therefore lag-biased: the sensor reports a rise late, so the apparent peak sits behind the true one. Each axis is then refined by **sweeping in both directions and averaging** — opposing passes carry equal and opposite bias, so their mean is unbiased for any sensor response time. 
 ---
 
 ## Hardware
@@ -54,8 +51,7 @@ That coarse pass is fast and therefore lag-biased: the sensor reports a rise lat
 | Status | Onboard LED (D13): solid = locked, flickering = searching |
 | Dependencies | `Servo.h` only |
 
-### The collimator is not optional
-
+Collimator: 
 A bare photoresistor sees the whole room. Rotating it a few degrees barely changes what reaches it, and the gradient is buried in noise.
 
 Fit a **2–3 cm opaque tube** over the sensor — a black drinking straw works — and mount it on the moving platform along its normal. Acceptance half-angle is `atan(bore / length)`; a 6 mm bore at 25 mm gives about ±13°.
