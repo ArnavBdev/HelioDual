@@ -416,12 +416,31 @@ void scanAcquire() {
 const float LASH_STEP = 0.25;
 
 /*
+ * Blocks until the photoresistor stops drifting, or until the timeout
+ * expires. CdS cells settle over hundreds of milliseconds; a fixed
+ * delay either wastes time or samples a reading that is still moving,
+ * and a moving reference corrupts every reversal measured against it.
+ */
+int waitSettled(uint16_t maxMs) {
+  int prev = readFast();
+  uint32_t t0 = millis();
+  while (millis() - t0 < maxMs) {
+    delay(80);
+    int now = readFast();
+    if (abs(now - prev) <= 2) return now;
+    prev = now;
+  }
+  return prev;
+}
+
+/*
  * Apparent backlash at one sweep rate. Parks on a flank of the light
  * curve, takes up the lash in one direction, then reverses and counts
  * commanded travel until the reading responds.
  *
- * The detection threshold is derived from the measured flank slope so
- * it scales with illumination.
+ * Detection is directional: reversing moves away from the peak, so only
+ * a fall counts. An undirected threshold would also fire on the cell
+ * still rising toward its settled value.
  */
 float measureBacklash(bool isRoll, uint8_t dt) {
   const float step  = LASH_STEP;
@@ -433,9 +452,8 @@ float measureBacklash(bool isRoll, uint8_t dt) {
 
   if (isRoll) rampTo(start, cmdPitch);
   else        rampTo(cmdRoll, start);
-  delay(300);
+  int first = waitSettled(2500);
 
-  int   first = readFast();
   float x = start;
   for (int i = 0; i < (int)(runUp / step); i++) {
     x += step;
@@ -443,8 +461,7 @@ float measureBacklash(bool isRoll, uint8_t dt) {
     writeServos();
     delay(dt);
   }
-  delay(250);
-  int lightA = readFast();
+  int lightA = waitSettled(2500);
 
   float slope = fabs((float)(lightA - first)) / runUp;
   if (slope < 2.0) {
@@ -460,7 +477,7 @@ float measureBacklash(bool isRoll, uint8_t dt) {
     writeServos();
     delay(dt);
     back += step;
-    if (fabs((float)(readFast() - lightA)) > thresh) break;
+    if ((float)(lightA - readFast()) > thresh) break;   // fall only
   }
 
   Serial.print(isRoll ? F("    roll  ") : F("    pitch "));
@@ -596,8 +613,20 @@ void repeatability() {
 /*
  * Fixed-panel versus tracked-panel irradiance over an identical arc,
  * swept by hand. The tracked figure includes the dither excursions, so
- * it is charged for the energy the search costs. Manual arc
- * reproduction limits repeatability to roughly +/-10%.
+ * it is charged for the energy the search costs.
+ *
+ * The fixed reference is the currently acquired aim point, not the
+ * mechanical centre. A fixed installation is oriented toward the mean
+ * sun position; benchmarking against an arbitrary angle measures how
+ * badly the panel was installed, not what tracking is worth. Run 'f'
+ * with the source at mid-arc before starting.
+ *
+ * Two caveats belong with any figure this produces. Arc reproduction is
+ * manual, worth roughly +/-10%. More importantly the sensor is
+ * collimated to a ~26 deg cone, while a PV module has a cosine response
+ * out to +/-90 deg, so the fixed reference falls off far faster here
+ * than a real panel would. The result overstates the gain against real
+ * hardware and should be quoted as such.
  */
 void benchmark() {
   delay(40);
@@ -605,14 +634,23 @@ void benchmark() {
 
   const uint32_t DUR = 20000;
 
+  if (lastLight < lightFloor) {
+    Serial.println(F("no acquired aim point; run 'f' at mid-arc first"));
+    return;
+  }
+
+  float fixR = baseRoll, fixP = basePitch;
+
   Serial.println();
   Serial.println(F("benchmark: fixed vs tracked, 20 s per phase"));
+  Serial.print(F("fixed reference = acquired aim roll "));
+  Serial.print(fixR, 1); Serial.print(F(" pitch ")); Serial.println(fixP, 1);
   Serial.println(F("sweep the source through the same arc in both"));
   Serial.println(F("phase 1 (fixed) in 3 s"));
   delay(3000);
 
   tracking = false;
-  rampTo(CENTER, CENTER);
+  rampTo(fixR, fixP);
   syncBase();
   delay(400);
 
@@ -662,11 +700,18 @@ void benchmark() {
   Serial.print(F("tracked mean ")); Serial.print(trackAvg);
   Serial.print(F("  n=")); Serial.println(benchN);
 
-  if (fixedAvg > 0) {
+  if (fixedAvg >= (uint32_t)(lightFloor / 3)) {
     long pct = ((long)trackAvg - (long)fixedAvg) * 100L / (long)fixedAvg;
     Serial.print(F("gain ")); Serial.print(pct); Serial.println(F(" %"));
+    Serial.println(F("note: collimated sensor falls off faster than a"));
+    Serial.println(F("cosine-response panel; this overstates real gain"));
   } else {
-    Serial.println(F("fixed mean zero; move the source closer"));
+    // A near-dark fixed phase means the reference was never pointed at
+    // the source, so the ratio measures aiming, not tracking.
+    Serial.println(F("fixed mean too low to compare - the reference was"));
+    Serial.println(F("dark for the whole phase. re-run 'f' with the"));
+    Serial.println(F("source at the MIDDLE of the arc, then sweep"));
+    Serial.println(F("symmetrically either side of it."));
   }
 
   delay(40);

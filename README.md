@@ -130,13 +130,28 @@ The tracked figure **includes the dither excursions**, so it is charged for the 
 
 Conditions: phone flashlight at ~40 cm, room lights dimmed.
 
-| Quantity | Value | Notes |
+| Quantity | Value | Method |
 |---|---|---|
-| Optical sensitivity | 28.0 / 24.5 counts/° | roll / pitch, measured on the flank |
-| Angular resolution | ~0.04 °/count | sensing limit |
-| Gear backlash | 2.50 / 3.25 ° | roll / pitch, **upper bound** at 4.2 °/s |
+| **Pointing repeatability** | **± 1.54 °** | 4 approaches, alternating side per axis |
+| Optical sensitivity | 28.0 / 24.5 counts/° | roll / pitch, on the flank |
+| Angular resolution | ~0.04 °/count | derived from the above |
+| Gear backlash | 2.5 – 3.3 ° | upper bound, single sweep rate |
 
-The optics resolve roughly two orders of magnitude finer than the mechanism does. This design is mechanically limited, not sensor limited — the next meaningful improvement is a metal-gear servo, not a better photodetector.
+The optics resolve roughly two orders of magnitude finer than the mechanism does. This design is **mechanically limited, not sensor limited** — the next meaningful improvement is a metal-gear servo, not a better photodetector. Repeatability landing at ±1.54° against 2.5–3.3° of measured lash is consistent with that.
+
+### On the energy-gain figure
+
+The `b` benchmark reports the irradiance gain of tracking over a fixed panel, and **the number it produces should not be quoted without its caveat.**
+
+The sensor is collimated to a ~26° cone. A PV module has a cosine response out to ±90°, so the fixed reference here falls off far faster than real hardware would, and the measured ratio overstates the true benefit by a wide margin. Published figures for dual-axis tracking against fixed installations are in the region of 30–40% annually.
+
+The benchmark is a useful check that the control loop keeps the panel on target through a moving arc. It is not a claim about photovoltaic yield.
+
+### On the backlash figure
+
+Reversing direction turns the servo output shaft through the gear lash before the platform follows, and the firmware measures this directly (`k`). The complication is that the photoresistor's own response time is indistinguishable from mechanical slop in a single measurement, so a single-rate figure is only ever an upper bound.
+
+Measuring at two sweep rates should separate them, since lash is rate-independent while sensor lag contributes an angle proportional to rate. In practice the extrapolation is only as good as the settled reference it starts from — an early version sampled before the cell had finished responding and returned physically impossible results (0.00° of backlash on one axis, and a sensor time constant that disagreed between two axes sharing one sensor). The reference is now held until the reading stops drifting, and detection is directional.
 
 ---
 
